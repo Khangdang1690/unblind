@@ -1,0 +1,15 @@
+[project]
+name = "unblind"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python>=4.10,<4.12",
+    "pix2tex>=0.1.4",
+]
+
+[tool.uv]
+override-dependencies = [
+    "opencv-python-headless ; sys_platform == 'never'",
+]
