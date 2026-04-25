@@ -12,7 +12,7 @@ from datetime import datetime
 import cv2
 from PIL import Image
 
-CAMERA_INDEX = 0
+CAMERA_INDEX = 1
 WINDOW_TITLE = "unblind - SPACE to capture, Q to quit"
 
 CROP_WIDTH_RATIO = 0.7
