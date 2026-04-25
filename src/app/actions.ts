@@ -1,6 +1,8 @@
 "use server";
 
+import { Binary } from "mongodb";
 import { GoogleGenAI } from "@google/genai";
+import { getDb } from "@/lib/mongodb";
 
 const SUPPORTED_MIME_TYPES = new Set([
   "image/png",
@@ -52,7 +54,25 @@ export async function extractAndRespond(
     };
   }
 
-  const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  try {
+    const db = await getDb();
+    await db.collection("uploads").insertOne({
+      filename: file.name,
+      mimeType: file.type,
+      size: file.size,
+      data: new Binary(bytes),
+      uploadedAt: new Date(),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Failed to save upload to MongoDB: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const base64 = bytes.toString("base64");
   const model = process.env.UNBLIND_MODEL ?? DEFAULT_MODEL;
   const ai = new GoogleGenAI({ apiKey });
 
