@@ -4,7 +4,7 @@
 
 **Live demo:** <https://unblind-rho.vercel.app/>
 
-Upload an image of a math problem, get a tutor that explains the answer and can keep talking — by typing **or by voice** — with retrieval-augmented grounding from a real math textbook.
+Snap a math problem with your phone — no app install, just scan a QR code on the laptop and tap the shutter — or upload an image directly. Either way, you get a tutor that explains the answer and can keep talking — by typing **or by voice** — with retrieval-augmented grounding from a real math textbook.
 
 Built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui, MongoDB Atlas (vector search **and** image storage), the [Google GenAI SDK](https://www.npmjs.com/package/@google/genai), and ElevenLabs TTS. **Gemini 2.5 Flash** handles the OCR pass, the initial responder pass, and the LaTeX → spoken-English rewrite for TTS. **Gemma 4 31B Dense** runs the chat agent loop — it was purpose-built for agentic / function-calling workflows and lives on a separate quota, so a busy chat session never burns the upload pipeline's request budget. Embeddings stay on `gemini-embedding-001`. The agent has one tool — `searchTextbook` — that runs Atlas `$vectorSearch` over an OpenStax textbook and decides on its own when to use it.
 
@@ -13,7 +13,7 @@ Built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui, Mong
 - **Image → transcribed problem + first response** in one server action — Gemini 2.5 Flash, OCR pass with thinking disabled, then a separate responder pass.
 - **Per-problem chat** — keep asking follow-ups on each problem page; the agent has full conversation memory within that problem.
 - **Voice mode in the browser** — click *Speak*, ask out loud, stop talking, and the message auto-submits after a configurable silence window. Assistant replies are normalized from LaTeX/markdown into natural spoken English (e.g. `$\frac{a}{b}$` → "a over b") and read aloud via ElevenLabs. Mute toggle, sensitivity slider, auto-send-delay slider, and a live input-level meter all live next to the textarea.
-- **Phone-camera capture** — `npm run dev:phone` opens an HTTPS tunnel; visit `/capture` on the laptop to see a QR, scan it with your phone, point at a problem, tap once, and the result page opens automatically.
+- **Phone-camera capture (the headline UX)** — instead of fiddling with file uploads, run `npm run dev:phone` to open a public HTTPS tunnel, then visit `/capture` on the laptop. You'll see a QR pointing at a stripped-down vanilla-JS camera page (`public/cam.html`). Scan it with your phone's Camera app (no install, no auth wall), grant camera access once, point at a worksheet or whiteboard, tap **Capture**, and the captured JPEG goes straight to `POST /api/solve` (which runs the same OCR + responder server action as the laptop upload form). The phone redirects to the resulting `/problems/{id}` page automatically; the laptop's sidebar picks the new problem up on its next render.
 - **Strict cross-problem isolation** — the agent only ever reads/writes the current problem document; messages from other problems are structurally unreachable.
 - **Agentic RAG on Gemma 4 31B Dense** — the chat agent runs on Gemma 4 (purpose-built for agentic / function-calling workflows, quota-isolated from the Gemini upload pipeline) and decides per-turn whether to call `searchTextbook` against an Atlas Vector Search index over a CC-BY-licensed OpenStax textbook. Concept questions trigger retrieval; arithmetic and chit-chat skip it.
 - **Retrieval traces** — every tool call and result is persisted as a debug message and rendered in a collapsible "marginalia · show retrieval trace" `<details>` so you can see exactly what the model looked up.
@@ -131,7 +131,7 @@ After ingestion, confirm in the Atlas UI → Search Indexes that `textbook_chunk
 npm run dev
 ```
 
-Open <http://localhost:3000>, upload an image (`.png`, `.jpg`, `.jpeg`, `.webp`, or `.gif` up to 10 MB). After the first OCR + response, you can keep chatting on the problem page — typed or spoken. Try:
+Open <http://localhost:3000>, upload an image (`.png`, `.jpg`, `.jpeg`, `.webp`, or `.gif` up to 10 MB) — or, for the QR-scan-and-snap flow, run `npm run dev:phone` instead and follow the [Capture from your phone](#capture-from-your-phone) section below. After the first OCR + response, you can keep chatting on the problem page — typed or spoken. Try:
 
 - **"Explain the quadratic formula"** — the agent calls `searchTextbook`, retrieves passages, and cites a section + page number in the answer.
 - **"What's 2+2?"** — the agent answers from its own knowledge; no tool call.
