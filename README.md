@@ -21,8 +21,8 @@ Built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui, Mong
 - **Persistent history sidebar** — every problem you've worked on, listed for one-click resume.
 - **Editorial schoolbook design** — Fraunces variable display font, marginalia annotations, drop caps, crop marks, italic chrome, cream paper background.
 - **Dynamic favicon** — italic `e` rendered at request time via `next/og`, so the brand mark stays in lockstep with palette/font tweaks.
-- **Rate-limit-aware Gemini calls** — `generateWithRetry` retries with exponential backoff (2s → 5s → 10s) on 429 responses.
-- **Multi-key ingestion** — optional comma-separated key pool rotates around per-key Gemini rate limits when embedding the textbook.
+- **API-key rotation pool** — every Gemini call (OCR, agent, RAG embeddings, TTS rewrite, **and** the ingest script) goes through a shared `GEMINI_API_KEYS` pool. When one key 429s the next one is tried immediately; if every key in the pool is rate-limited the pool sleeps (using the server's `retryDelay` hint when present) and retries up to 3 cycles. Single-key setups (just `GEMINI_API_KEY`) keep working unchanged.
+- **Pluggable agent model** — set `EULER_AGENT_MODEL` to route the chat agent through any AI Studio model id (e.g. `gemma-4-31b-it`) without touching OCR or TTS.
 
 ## Prerequisites
 
@@ -81,8 +81,15 @@ EULER_TEXTBOOK_SOURCE=openstax-algebra-trig-2e
 # tunnel (ngrok, Tailscale Funnel, etc.).
 EULER_PUBLIC_URL=https://your-tunnel.example.com
 
-# Comma-separated pool of Gemini API keys used by the ingest script ONLY,
-# to rotate around per-key rate limits. Falls back to GEMINI_API_KEY.
+# Route the chat agent through a different AI Studio model id while OCR and
+# TTS keep using EULER_MODEL. Useful for trying gemma-4-31b-it on the
+# agentic RAG loop without disturbing the upload flow.
+EULER_AGENT_MODEL=gemma-4-31b-it
+
+# Comma-separated pool of Gemini API keys for runtime rotation (OCR, agent,
+# RAG embeddings, TTS rewrite, and ingest). When one key 429s the next is
+# used; if every key is rate-limited the pool backs off and retries. Falls
+# back to GEMINI_API_KEY if unset.
 GEMINI_API_KEYS=key1,key2,key3
 ```
 
@@ -257,7 +264,8 @@ src/
     mongodb.ts                          Cached client + getDb()
     problems.ts                         Problem CRUD + saveProblemFile/getProblemFile (image storage)
     rag.ts                              searchTextbook + embedText
-    agent.ts                            runAgent loop, tool wiring, persistence, generateWithRetry
+    agent.ts                            runAgent loop, tool wiring, persistence
+    gemini-pool.ts                      Shared Gemini client pool with key rotation on 429
     strip-markdown.ts                   Markdown/LaTeX → plain text (used by voice agent CLI)
 public/
   cam.html                              Static phone-camera page (vanilla JS, no React)

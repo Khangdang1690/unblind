@@ -1,4 +1,4 @@
-import { GoogleGenAI, type Content, type FunctionCall } from "@google/genai";
+import { type Content, type FunctionCall } from "@google/genai";
 import {
   appendMessages,
   getProblem,
@@ -6,8 +6,14 @@ import {
   type TextMessage,
 } from "@/lib/problems";
 import { searchTextbook, type RagHit } from "@/lib/rag";
+import { generateContent } from "@/lib/gemini-pool";
 
-export const AGENT_MODEL = "gemini-2.5-flash";
+// Default to Gemini 2.5 Flash; set EULER_AGENT_MODEL=gemma-4-31b-it (or any
+// AI Studio model id) to route the chat agent through a different model.
+// OCR + responder (`actions.ts`) and TTS rewrite (`api/tts/route.ts`) keep
+// their own model selection so each layer can be swapped independently.
+export const AGENT_MODEL =
+  process.env.EULER_AGENT_MODEL ?? "gemini-2.5-flash";
 const MAX_TOOL_ROUNDS = 4;
 
 const AGENT_SYSTEM_PROMPT =
@@ -58,44 +64,8 @@ export class ProblemNotFoundError extends Error {
   }
 }
 
-let aiSingleton: GoogleGenAI | null = null;
-function ai(): GoogleGenAI {
-  if (aiSingleton) return aiSingleton;
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "GEMINI_API_KEY is not set. Add it to .env and restart the server.",
-    );
-  }
-  aiSingleton = new GoogleGenAI({ apiKey });
-  return aiSingleton;
-}
-
-function isRateLimitError(err: unknown): boolean {
-  if (err && typeof err === "object" && "status" in err) {
-    return (err as { status: number }).status === 429;
-  }
-  const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes("429") || msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("quota");
-}
-
-async function generateWithRetry(
-  ...args: Parameters<GoogleGenAI["models"]["generateContent"]>
-): ReturnType<GoogleGenAI["models"]["generateContent"]> {
-  const delays = [2000, 5000, 10000];
-  for (let i = 0; i <= delays.length; i++) {
-    try {
-      return await ai().models.generateContent(...args);
-    } catch (err) {
-      if (isRateLimitError(err) && i < delays.length) {
-        await new Promise((r) => setTimeout(r, delays[i]));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error("unreachable");
-}
+// Rate-limit handling and key rotation live in `gemini-pool` and apply to
+// every Gemini call across the app (agent, OCR, RAG embeddings, TTS rewrite).
 
 function buildContents(messages: Message[]): Content[] {
   const out: Content[] = [];
@@ -144,7 +114,7 @@ export async function runAgent(
   let finalText = "";
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const resp = await generateWithRetry({
+    const resp = await generateContent({
       model: AGENT_MODEL,
       contents,
       config: {
@@ -190,7 +160,7 @@ export async function runAgent(
   }
 
   if (!finalText) {
-    const recovery = await generateWithRetry({
+    const recovery = await generateContent({
       model: AGENT_MODEL,
       contents,
       config: {

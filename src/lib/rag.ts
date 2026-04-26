@@ -1,6 +1,6 @@
 import type { Collection, ObjectId } from "mongodb";
-import { GoogleGenAI } from "@google/genai";
 import { getDb } from "./mongodb";
+import { embedContent } from "./gemini-pool";
 
 export const TEXTBOOK_CHUNKS_COLLECTION = "textbook_chunks";
 export const TEXTBOOK_VECTOR_INDEX = "textbook_chunks_vector";
@@ -31,27 +31,13 @@ export type RagHit = {
   score: number;
 };
 
-let aiSingleton: GoogleGenAI | null = null;
-
-function ai(): GoogleGenAI {
-  if (aiSingleton) return aiSingleton;
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "GEMINI_API_KEY is not set. Add it to .env and restart the server.",
-    );
-  }
-  aiSingleton = new GoogleGenAI({ apiKey });
-  return aiSingleton;
-}
-
 export async function chunksCollection(): Promise<Collection<TextbookChunk>> {
   const db = await getDb();
   return db.collection<TextbookChunk>(TEXTBOOK_CHUNKS_COLLECTION);
 }
 
 export async function embedText(text: string): Promise<number[]> {
-  const resp = await ai().models.embedContent({
+  const resp = await embedContent({
     model: EMBEDDING_MODEL,
     contents: [{ parts: [{ text }] }],
     config: { outputDimensionality: EMBEDDING_DIMENSIONS },

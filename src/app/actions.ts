@@ -2,13 +2,13 @@
 
 import { ObjectId } from "mongodb";
 import { revalidatePath } from "next/cache";
-import { GoogleGenAI } from "@google/genai";
 import {
   createProblem,
   deleteProblem as deleteProblemFromDb,
   saveProblemFile,
   type Message,
 } from "@/lib/problems";
+import { generateContent } from "@/lib/gemini-pool";
 
 const SUPPORTED_MIME_TYPES: Record<string, string> = {
   "image/png": "png",
@@ -40,12 +40,16 @@ export type SubmitResult =
 export async function submitProblem(
   formData: FormData,
 ): Promise<SubmitResult> {
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
+  const hasKey = !!(
+    process.env.GEMINI_API_KEY ??
+    process.env.GOOGLE_API_KEY ??
+    process.env.GEMINI_API_KEYS
+  );
+  if (!hasKey) {
     return {
       ok: false,
       error:
-        "GEMINI_API_KEY is not set on the server. Add it to .env and restart the dev server.",
+        "No Gemini API key configured. Set GEMINI_API_KEYS (comma-separated for rotation) or GEMINI_API_KEY in .env and restart the dev server.",
     };
   }
 
@@ -65,11 +69,10 @@ export async function submitProblem(
   const bytes = Buffer.from(await file.arrayBuffer());
   const base64 = bytes.toString("base64");
   const model = process.env.EULER_MODEL ?? DEFAULT_MODEL;
-  const ai = new GoogleGenAI({ apiKey });
 
   let statement: string;
   try {
-    const ocr = await ai.models.generateContent({
+    const ocr = await generateContent({
       model,
       contents: [
         { inlineData: { mimeType: file.type, data: base64 } },
@@ -94,7 +97,7 @@ export async function submitProblem(
 
   let response: string;
   try {
-    const reply = await ai.models.generateContent({
+    const reply = await generateContent({
       model,
       contents: [{ text: statement }],
       config: {

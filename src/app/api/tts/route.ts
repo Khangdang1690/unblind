@@ -1,5 +1,5 @@
 import { ElevenLabsClient } from "elevenlabs";
-import { GoogleGenAI } from "@google/genai";
+import { generateContent } from "@/lib/gemini-pool";
 
 const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
 const TTS_MODEL = "eleven_turbo_v2";
@@ -14,18 +14,9 @@ const SPOKEN_SYSTEM_PROMPT =
   "Remove all markdown formatting (**, #, *, backticks). " +
   "Output only the spoken text — no preamble, no explanation, no quotes around it.";
 
-let geminiSingleton: GoogleGenAI | null = null;
-function gemini(): GoogleGenAI {
-  if (geminiSingleton) return geminiSingleton;
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not set.");
-  geminiSingleton = new GoogleGenAI({ apiKey });
-  return geminiSingleton;
-}
-
 async function toSpoken(text: string): Promise<string> {
   try {
-    const resp = await gemini().models.generateContent({
+    const resp = await generateContent({
       model: GEMINI_MODEL,
       contents: [{ text }],
       config: {
