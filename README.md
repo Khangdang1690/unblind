@@ -2,6 +2,8 @@
 
 > unblind the genius math in you.
 
+**Live demo:** <https://unblind-rho.vercel.app/>
+
 Upload an image of a math problem, get a tutor that explains the answer and can keep talking — by typing **or by voice** — with retrieval-augmented grounding from a real math textbook.
 
 Built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui, MongoDB Atlas (vector search **and** image storage), the [Google GenAI SDK](https://www.npmjs.com/package/@google/genai), and ElevenLabs TTS. Gemini 2.5 Flash drives the OCR pass, the responder pass, and the chat agent loop. The agent has one tool — `searchTextbook` — that runs Atlas `$vectorSearch` over an OpenStax textbook and decides on its own when to use it.
