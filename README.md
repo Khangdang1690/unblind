@@ -6,23 +6,23 @@
 
 Upload an image of a math problem, get a tutor that explains the answer and can keep talking — by typing **or by voice** — with retrieval-augmented grounding from a real math textbook.
 
-Built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui, MongoDB Atlas (vector search **and** image storage), the [Google GenAI SDK](https://www.npmjs.com/package/@google/genai), and ElevenLabs TTS. Gemini 2.5 Flash drives the OCR pass, the responder pass, and the chat agent loop. The agent has one tool — `searchTextbook` — that runs Atlas `$vectorSearch` over an OpenStax textbook and decides on its own when to use it.
+Built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui, MongoDB Atlas (vector search **and** image storage), the [Google GenAI SDK](https://www.npmjs.com/package/@google/genai), and ElevenLabs TTS. **Gemini 2.5 Flash** handles the OCR pass, the initial responder pass, and the LaTeX → spoken-English rewrite for TTS. **Gemma 4 31B Dense** runs the chat agent loop — it was purpose-built for agentic / function-calling workflows and lives on a separate quota, so a busy chat session never burns the upload pipeline's request budget. Embeddings stay on `gemini-embedding-001`. The agent has one tool — `searchTextbook` — that runs Atlas `$vectorSearch` over an OpenStax textbook and decides on its own when to use it.
 
 ## Features
 
-- **Image → transcribed problem + first response** in one server action (Gemini 2.5 Flash, OCR pass with thinking disabled, then a separate responder pass).
+- **Image → transcribed problem + first response** in one server action — Gemini 2.5 Flash, OCR pass with thinking disabled, then a separate responder pass.
 - **Per-problem chat** — keep asking follow-ups on each problem page; the agent has full conversation memory within that problem.
 - **Voice mode in the browser** — click *Speak*, ask out loud, stop talking, and the message auto-submits after a configurable silence window. Assistant replies are normalized from LaTeX/markdown into natural spoken English (e.g. `$\frac{a}{b}$` → "a over b") and read aloud via ElevenLabs. Mute toggle, sensitivity slider, auto-send-delay slider, and a live input-level meter all live next to the textarea.
 - **Phone-camera capture** — `npm run dev:phone` opens an HTTPS tunnel; visit `/capture` on the laptop to see a QR, scan it with your phone, point at a problem, tap once, and the result page opens automatically.
 - **Strict cross-problem isolation** — the agent only ever reads/writes the current problem document; messages from other problems are structurally unreachable.
-- **Agentic RAG** — the agent decides per-turn whether to call `searchTextbook` (Atlas Vector Search over a CC-BY-licensed OpenStax textbook). Concept questions trigger retrieval; arithmetic and chit-chat skip it.
+- **Agentic RAG on Gemma 4 31B Dense** — the chat agent runs on Gemma 4 (purpose-built for agentic / function-calling workflows, quota-isolated from the Gemini upload pipeline) and decides per-turn whether to call `searchTextbook` against an Atlas Vector Search index over a CC-BY-licensed OpenStax textbook. Concept questions trigger retrieval; arithmetic and chit-chat skip it.
 - **Retrieval traces** — every tool call and result is persisted as a debug message and rendered in a collapsible "marginalia · show retrieval trace" `<details>` so you can see exactly what the model looked up.
 - **MongoDB-backed image storage** — uploaded images are saved as `Binary` documents in the `problem_files` collection, not on disk. The deployment is stateless and survives restarts/migrations without losing assets.
 - **Persistent history sidebar** — every problem you've worked on, listed for one-click resume.
 - **Editorial schoolbook design** — Fraunces variable display font, marginalia annotations, drop caps, crop marks, italic chrome, cream paper background.
 - **Dynamic favicon** — italic `e` rendered at request time via `next/og`, so the brand mark stays in lockstep with palette/font tweaks.
 - **API-key rotation pool** — every Gemini call (OCR, agent, RAG embeddings, TTS rewrite, **and** the ingest script) goes through a shared `GEMINI_API_KEYS` pool. When one key 429s the next one is tried immediately; if every key in the pool is rate-limited the pool sleeps (using the server's `retryDelay` hint when present) and retries up to 3 cycles. Single-key setups (just `GEMINI_API_KEY`) keep working unchanged.
-- **Pluggable agent model** — set `EULER_AGENT_MODEL` to route the chat agent through any AI Studio model id (e.g. `gemma-4-31b-it`) without touching OCR or TTS.
+- **Pluggable agent model** — defaults to `gemma-4-31b-it`; set `EULER_AGENT_MODEL` to any other AI Studio model id (e.g. `gemini-2.5-flash`) to swap just the chat agent without touching OCR or TTS.
 
 ## Prerequisites
 
@@ -81,9 +81,9 @@ EULER_TEXTBOOK_SOURCE=openstax-algebra-trig-2e
 # tunnel (ngrok, Tailscale Funnel, etc.).
 EULER_PUBLIC_URL=https://your-tunnel.example.com
 
-# Route the chat agent through a different AI Studio model id while OCR and
-# TTS keep using EULER_MODEL. Useful for trying gemma-4-31b-it on the
-# agentic RAG loop without disturbing the upload flow.
+# Override the chat agent model (defaults to gemma-4-31b-it). Set this to
+# gemini-2.5-flash, gemini-2.5-pro, or any other AI Studio model id to swap
+# just the chat agent. OCR + responder keep using EULER_MODEL.
 EULER_AGENT_MODEL=gemma-4-31b-it
 
 # Comma-separated pool of Gemini API keys for runtime rotation (OCR, agent,
@@ -197,11 +197,11 @@ If you'd rather skip the tunnel and use the camera page directly on the laptop (
 
 ### Chat flow ([`src/lib/agent.ts`](src/lib/agent.ts))
 1. The chat UI POSTs to `/api/problems/{id}/chat` with the user's message.
-2. `runAgent` loads the problem (the **only** DB read for context — this is what enforces per-problem isolation), builds a Gemini `Content[]` from the conversation history, and runs a function-calling loop.
+2. `runAgent` loads the problem (the **only** DB read for context — this is what enforces per-problem isolation), builds a `Content[]` from the conversation history, and runs a function-calling loop against `AGENT_MODEL` (defaults to `gemma-4-31b-it`, override via `EULER_AGENT_MODEL`).
 3. Each turn, the model can either emit a final text answer or call `searchTextbook(query, k)`. The system prompt tells it to call the tool only for textbook-style concept questions (definitions, theorems, formulas, worked examples) and skip it for arithmetic and chit-chat.
 4. Loop terminates when the model emits a turn with no function calls. Capped at 4 rounds; if the cap fires, one final call with `tools: []` forces a text reply.
 5. New messages — the user turn, every tool-call/tool-result trace, and the final assistant turn — are appended to the problem in one update via `appendMessages(id, msgs)`.
-6. Every Gemini call is wrapped in `generateWithRetry`, which retries on 429s with backoff `[2s, 5s, 10s]`.
+6. Every call is routed through `src/lib/gemini-pool.ts`, which rotates through `GEMINI_API_KEYS` on 429 and backs off if the whole pool is rate-limited.
 
 ### TTS flow ([`src/app/api/tts/route.ts`](src/app/api/tts/route.ts))
 1. The chat UI POSTs each new assistant reply to `/api/tts`.

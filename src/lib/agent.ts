@@ -8,12 +8,13 @@ import {
 import { searchTextbook, type RagHit } from "@/lib/rag";
 import { generateContent } from "@/lib/gemini-pool";
 
-// Default to Gemini 2.5 Flash; set EULER_AGENT_MODEL=gemma-4-31b-it (or any
-// AI Studio model id) to route the chat agent through a different model.
-// OCR + responder (`actions.ts`) and TTS rewrite (`api/tts/route.ts`) keep
-// their own model selection so each layer can be swapped independently.
+// Chat agent runs on Gemma 4 31B Dense — strong agentic / function-calling
+// capability and a separate quota from Gemini 2.5 Flash, so the upload flow
+// (OCR + responder in `actions.ts`) and TTS rewrite (`api/tts/route.ts`)
+// don't compete with the chat loop for free-tier requests. Override with
+// EULER_AGENT_MODEL if you want to point the agent somewhere else.
 export const AGENT_MODEL =
-  process.env.EULER_AGENT_MODEL ?? "gemini-2.5-flash";
+  process.env.EULER_AGENT_MODEL ?? "gemma-4-31b-it";
 const MAX_TOOL_ROUNDS = 4;
 
 const AGENT_SYSTEM_PROMPT =
